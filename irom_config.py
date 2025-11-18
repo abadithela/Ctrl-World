@@ -16,7 +16,9 @@ class wm_args:
     # dataset parameters
     # raw data
     dataset_root_path = "dataset_example"
-    dataset_names = 'droid_subset'
+    # dataset_names = 'droid_subset'
+    dataset_names = "pick_and_place" # Figure out why these arguments are not clear!
+
     # meta info
     dataset_meta_info_path = 'dataset_meta_info' #'/cephfs/cjyyj/code/video_evaluation/exp_cfg'#'dataset_meta_info'
     dataset_cfgs = dataset_names
@@ -73,7 +75,7 @@ class wm_args:
     ########################### rollout args ############################
     # policy
     task_type: str = "pickplace" # choose from ['pickplace', 'towel_fold', 'wipe_table', 'tissue', 'close_laptop','tissue','drawer','stack']
-    gripper_max_dict = {'replay':1.0, 'pickplace':0.75, 'towel_fold':0.95, 'wipe_table':0.95, 'tissue':0.97, 'close_laptop':0.95,'drawer':0.75,'stack':0.75,}
+    gripper_max_dict = {'replay':1.0, 'pickplace':0.75, 'pick_and_place':0.75, 'towel_fold':0.95, 'wipe_table':0.95, 'tissue':0.97, 'close_laptop':0.95,'drawer':0.75,'stack':0.75,}
     ##############################################################################
     policy_type = 'pi05' # choose from ['pi05', 'pi0', 'pi0fast']
     action_adapter = 'models/action_adapter/model2_15_9.pth' # adapat action from joint vel to cartesian pose
@@ -87,7 +89,7 @@ class wm_args:
     history_idx = [0,0,-12,-9,-6,-3]
 
     # save
-    save_dir = 'synthetic_traj'
+    save_dir = '17Nov_synthetic_traj'
 
     # select different traj for different tasks
     def __post_init__(self):
@@ -113,23 +115,13 @@ class wm_args:
             self.instruction = [""] * len(self.val_id)
             self.task_name = "Rollouts_keyboard"
 
-        # elif self.task_type == "keyboard2":
-        #     self.val_dataset_dir = "/cephfs/shared/droid_hf/droid_svd_v2"
-        #     self.val_id = ["1499"]*100
-        #     self.start_idx = [8] * len(self.val_id) # 2599 8 #9499 10
-        #     self.instruction = [""] * len(self.val_id)
-        #     self.task_name = "Rollouts_keyboard_1499"
-        #     self.ineraction_num = 7
-
         elif self.task_type == "pickplace":
             self.interact_num = 15
-            self.val_dataset_dir = "dataset_example/droid_new_setup"
-            self.val_id = ['0001','0002','0003']
+            self.val_dataset_dir = "dataset_example/irom_subset"
+            self.val_id = ['01']
             self.start_idx = [0] * len(self.val_id)
             self.instruction = [
-                "pick up the blue block and place in plate",
-                "pick up the blue block and place in plate",
-                "pick up the green block and place in plate",]
+                "pick carrot",]
 
         elif self.task_type == "towel_fold":
             self.interact_num = 15
@@ -169,4 +161,12 @@ class wm_args:
             self.instruction = ["stack the blue block on the red block"] * len(self.val_id)
         
         else:
-            raise ValueError(f"Unknown task type: {self.task_type}")
+            self.interact_num = 20
+            self.val_dataset_dir = f"dataset_example/{self.task_type}"
+            self.val_id = subfolders = sorted([
+                name for name in os.listdir(f"{self.val_dataset_dir}/videos")
+                if os.path.isdir(os.path.join(self.val_dataset_dir, "videos", name))
+            ])
+            self.start_idx = [0] * len(self.val_id)
+            self.instruction = [
+                "pick and place",]

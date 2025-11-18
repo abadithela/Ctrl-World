@@ -3,6 +3,7 @@
 # from openpi.policies import policy_config
 # from openpi_client import image_tools
 import numpy as np
+import h5py
 
 
 from accelerate import Accelerator
@@ -89,37 +90,47 @@ class agent():
         ndata = 2 * (data - data_min) / (data_max - data_min + eps) - 1
         return np.clip(ndata, clip_min, clip_max)
     
-    def get_traj_info(self, id, start_idx=0, steps=8):
+    def get_traj_info(self, id, start_idx=0, steps=8,skip=1, experiment=None):
         val_dataset_dir = self.args.val_dataset_dir
-        args = self.args
-        skip = args.skip_step
         num_frames = steps
-        annotation_path = f"{val_dataset_dir}/annotation/val/{id}.json"
-        with open(annotation_path) as f:
-            anno = json.load(f)
-            try:
-                length = len(anno['action'])
-            except:
-                length = anno["video_length"]
+        annotation_path = f"{val_dataset_dir}/annotation/{id}/{id}.h5"
+        data = {}
+        with h5py.File(annotation_path, 'r') as f:
+            # List all groups (top-level keys)
+            print("Keys:", list(f.keys()))
+            # Access a specific group or dataset
+            data["cartesian_pose"] = f['cartesian_position'][()]   # replace with actual key name
+            data["gripper_pose"] = f["gripper_position"][()]
+            data["joint_position"] = f["joint_position"][()]
+            instruction = f["instruction"][()].decode("utf-8").strip('"')
+
+        length = len(data["cartesian_pose"])
         frames_ids = np.arange(start_idx, start_idx + num_frames * skip, skip)
+        length = min(len(frames_ids), length)
         max_ids = np.ones_like(frames_ids) * (length - 1)
         frames_ids = np.min([frames_ids, max_ids], axis=0).astype(int)
         print("Ground truth frames ids", frames_ids)
-
+        
         # get action and joint pos
-        instruction = anno['texts'][0]
-        car_action = np.array(anno['states'])
+        # instruction = anno['texts'][0]
+        car_action = np.array(data['cartesian_pose'])
         car_action = car_action[frames_ids]
-        joint_pos = np.array(anno['joints'])
+        joint_pos = np.array(data['joint_position'])
         joint_pos = joint_pos[frames_ids]
-
+        gripper_pose = np.array(data["gripper_pose"])[frames_ids]
+        car_action = np.concatenate((car_action,gripper_pose),axis=1)
+        joint_pos = np.concatenate((joint_pos, gripper_pose), axis=1)
         # get videos
         video_dict =[]
         video_latent = []
-        for id in range(len(anno['videos'])):
-            video_path = anno['videos'][id]['video_path']
-            video_path = f"{val_dataset_dir}/{video_path}"
-            # load videos from all views
+        if experiment is not None:
+            video_dir = f"/n/fs/irom-testing/world_models/Ctrl-World/dataset_example/{experiment}/videos/{id}/resized_wm"
+        else:
+            video_dir = f"/n/fs/irom-testing/world_models/Ctrl-World/dataset_example/irom_subset/videos/{id}/resized_cv"
+        
+        # load videos from all views
+        for file in os.listdir(video_dir):
+            video_path = os.path.join(video_dir, file)
             vr = VideoReader(video_path, ctx=cpu(0), num_threads=2)
             try:
                 true_video = vr.get_batch(range(length)).asnumpy()
@@ -127,20 +138,10 @@ class agent():
                 true_video = vr.get_batch(range(length)).numpy()
             true_video = true_video[frames_ids]
             video_dict.append(true_video)
-            
-            val_dir = "/".join(Path(video_path).parts[-3:-1])
-            os.makedirs(f"first_frames/{val_dir}", exist_ok=True)
-            # Create and save image
-
             # encode video
             device = self.device
             true_video = torch.from_numpy(true_video).to(self.dtype).to(device)
-            x = true_video.permute(0,3,1,2).to(device) 
-            first_frame = x[0:1]/255.0
-            save_image(first_frame, f"first_frames/{val_dir}/{id}_norm.png")
-            x = x/255.0*2 -1 
-            # x = true_video.permute(0,3,1,2).to(device) / 255.0*2-1
-            
+            x = true_video.permute(0,3,1,2).to(device) / 255.0*2-1
             vae = self.model.pipeline.vae
             with torch.no_grad():
                 batch_size = 32
@@ -230,16 +231,17 @@ class agent():
 
         
 if __name__ == "__main__":
-    from config import wm_args
+    from irom_config import wm_args
     from argparse import ArgumentParser
     parser = ArgumentParser()
-    parser.add_argument('--svd_model_path', type=str, default=None)
-    parser.add_argument('--clip_model_path', type=str, default=None)
-    parser.add_argument('--ckpt_path', type=str, default=None)
-    parser.add_argument('--dataset_root_path', type=str, default=None)
-    parser.add_argument('--dataset_meta_info_path', type=str, default=None)
+    parser.add_argument('--svd_model_path', type=str, default="/n/fs/irom-testing/world_models/Ctrl-World/stable-video-diffusion-img2vid")
+    parser.add_argument('--clip_model_path', type=str, default="/n/fs/irom-testing/world_models/Ctrl-World/clip-vit-base-patch32")
+    parser.add_argument('--ckpt_path', type=str, default="/n/fs/irom-testing/world_models/Ctrl-World/checkpoints/checkpoint-10000.pt")
+    parser.add_argument('--dataset_root_path', type=str, default="dataset_example")
+    parser.add_argument('--dataset_meta_info_path', type=str, default="dataset_meta_info")
     parser.add_argument('--dataset_names', type=str, default=None)
-    parser.add_argument('--task_type', type=str, default='replay')
+    parser.add_argument('--task_type', type=str, default='irom_replay')
+    parser.add_argument('--task_name', type=str, default='action_replay')
     args_new = parser.parse_args()
 
     args = wm_args(task_type=args_new.task_type)
@@ -254,16 +256,16 @@ if __name__ == "__main__":
 
     # create rollout agent
     Agent = agent(args)
-    interact_num = args.interact_num
+    interact_num = args.interact_num + 5
     pred_step = args.pred_step
     num_history = args.num_history
     num_frames = args.num_frames
     print(f'rollout with {args.task_type}')
 
-
-    for val_id_i, text_i, start_idx_i in zip(args.val_id, args.instruction, args.start_idx):
+    
+    for val_id_i, start_idx_i in zip(args.val_id, args.start_idx):
         # read ground truth trajectory informations
-        eef_gt, joint_pos_gt, video_dict, video_latents, instruction = Agent.get_traj_info(val_id_i, start_idx=start_idx_i, steps=int(pred_step*interact_num+8))
+        eef_gt, joint_pos_gt, video_dict, video_latents, instruction = Agent.get_traj_info(val_id_i, start_idx=start_idx_i, steps=int(pred_step*interact_num+8), experiment=args.dataset_names)
         text_i = instruction
         print("text_i:",instruction, "eef pose at t=0", eef_gt[0], "joint at t=0", joint_pos_gt[0])
 
