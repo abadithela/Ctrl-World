@@ -8,7 +8,7 @@
 #SBATCH --gres=gpu:1
 #SBATCH --ntasks=1
 #SBATCH --cpus-per-task=8
-#SBATCH --mem=50G
+#SBATCH --mem=25G
 #SBATCH --partition=all
 #SBATCH --signal=USR1@60
 #SBATCH --exclude=neu306
@@ -20,9 +20,9 @@ conda activate ctrl-world
 svd_folder="/n/fs/irom-testing/world_models/Ctrl-World/stable-video-diffusion-img2vid"
 clip_folder="/n/fs/irom-testing/world_models/Ctrl-World/clip-vit-base-patch32"
 ckpt_path="/n/fs/irom-testing/world_models/Ctrl-World/checkpoints/checkpoint-10000.pt"
-policy_path="/n/fs/irom-testing/world_models/Ctrl-World/openpi/checkpoints/pi05_droid"
+policy_path="/n/fs/irom-testing/world_models/Ctrl-World/openpi/checkpoints/pi0_fast_droid"
 
-dataset_names="pick_marker"
+dataset_names="pi05_test"
 
 CUDA_VISIBLE_DEVICES=0 XLA_PYTHON_CLIENT_MEM_FRACTION=0.4 uv run python scripts/interact_pi_irom.py \
     --task_type ${dataset_names} \

@@ -3,7 +3,7 @@
 #SBATCH --job-name=aigen
 #SBATCH --output=logs/%A_evalpi0.out
 #SBATCH --error=logs/%A_evalpi0.err
-#SBATCH --time=1:00:00
+#SBATCH --time=4:00:00
 #SBATCH -N 1
 #SBATCH --gres=gpu:1
 #SBATCH --ntasks=1
