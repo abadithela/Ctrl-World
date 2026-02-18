@@ -70,14 +70,13 @@ class wm_args:
     his_cond_zero = False
     dtype = torch.bfloat16 # [torch.float32, torch.bfloat16] # during inference, we can use bfloat16 to accelerate the inference speed and save memory
 
-
-
     ########################### rollout args ############################
     # policy
     task_type: str = "pickplace" # choose from ['pickplace', 'towel_fold', 'wipe_table', 'tissue', 'close_laptop','tissue','drawer','stack']
     gripper_max_dict = {'replay':1.0, 'pickplace':0.75, 'pick_and_place':0.75, 'towel_fold':0.95, 'wipe_table':0.95, 'tissue':0.97, 'close_laptop':0.95,'drawer':0.75,'stack':0.75,}
     ##############################################################################
-    policy_type = 'pi05' # choose from ['pi05', 'pi0', 'pi0fast']
+    policy_type = 'pi0fast' # choose from ['pi05', 'pi0', 'pi0fast']
+    
     action_adapter = 'models/action_adapter/model2_15_9.pth' # adapat action from joint vel to cartesian pose
     pred_step = 5 # predict 5 steps (1s) action each time
     policy_skip_step = 2 # horizon = (pred_step-1) * policy_skip_step
@@ -89,7 +88,15 @@ class wm_args:
     history_idx = [0,0,-12,-9,-6,-3]
 
     # save
-    save_dir = '17Nov_synthetic_traj'
+    # Number of chunks you want
+
+    # Select the appropriate chunk based on index variable
+    idx = 1 # or whatever variable you're using
+    policy = "pifast"
+    task = "drawer"
+
+    save_dir = f"{policy}_{task}_pt{idx}"
+    print("Saving to: ", save_dir)
 
     # select different traj for different tasks
     def __post_init__(self):
@@ -161,12 +168,21 @@ class wm_args:
             self.instruction = ["stack the blue block on the red block"] * len(self.val_id)
         
         else:
-            self.interact_num = 20
+            self.interact_num = 25 # 25 second interactions
             self.val_dataset_dir = f"dataset_example/{self.task_type}"
-            self.val_id = subfolders = sorted([
+            subfolders = subfolders = sorted([
                 name for name in os.listdir(f"{self.val_dataset_dir}/videos")
                 if os.path.isdir(os.path.join(self.val_dataset_dir, "videos", name))
             ])
+            # Compute chunk size
+            # num_parts = 4
+            # chunk_size = len(subfolders) // num_parts     # 20 // 4 = 5
+            # start = (self.idx-1) * chunk_size
+            # end = self.idx * chunk_size
+            
+            start = 0
+            end = len(subfolders)
+            self.val_id = subfolders[start:end]
             self.start_idx = [0] * len(self.val_id)
             self.instruction = [
                 "pick and place",]

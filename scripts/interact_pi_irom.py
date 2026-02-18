@@ -50,7 +50,7 @@ class agent():
             config = config_pi.get_config("pi05_droid")
             # checkpoint_dir = '/cephfs/shared/llm/openpi/openpi-assets-preview/checkpoints/pi05_droid' 
         elif 'pi0fast' in args.policy_type:
-            config = config_pi.get_config("pi0fast_droid")
+            config = config_pi.get_config("pi0_fast_droid")
             # checkpoint_dir = '/cephfs/shared/llm/openpi/openpi-assets/checkpoints/pi0fast_droid'
         elif 'pi0' in args.policy_type:
             config = config_pi.get_config("pi0_droid")
@@ -330,84 +330,83 @@ if __name__ == "__main__":
     num_frames = args.num_frames
     history_idx = args.history_idx
     # Nruns per traj: 5
-    for nruns in range(1):
-        # run len(val_id) trajectory
-        for val_id_i, start_idx_i in zip(args.val_id, args.start_idx):
-            # get initial state and groud truth
-            id = val_id_i
-            eef_gt, joint_pos_gt, video_dict, video_latents, text_i = Agent.get_traj_info(val_id_i, start_idx=start_idx_i, steps=int(pred_step*interact_num+8), experiment=args.dataset_names)
-            print("text_i:",text_i, "eef pose at t=0", eef_gt[0], "joint at t=0", joint_pos_gt[0])
-            # initialize all history buffer
-            video_to_save, info_to_save = [], []
-            his_cond, his_joint, his_eef = [], [], []
-            first_latent = torch.cat([v[0] for v in video_latents], dim=1).unsqueeze(0)  # (1, 4, 72, 40)
-            assert first_latent.shape == (1, 4, 72, 40), f"Expected first_latent shape (1, 4, 72, 40), got {first_latent.shape}"
-            for i in range(Agent.args.num_history*4):
-                his_cond.append(first_latent)  # (1, 4, 72, 40)
-                his_joint.append(joint_pos_gt[0:1])  # (1, 7) this dimension makes no sense with what is given in line 356
-                his_eef.append(eef_gt[0:1])  # (1, 7)
-            video_dict_pred = [v[0:1] for v in video_dict]
+    # run len(val_id) trajectory
+    for val_id_i, start_idx_i in zip(args.val_id, args.start_idx):
+        # get initial state and groud truth
+        id = val_id_i
+        eef_gt, joint_pos_gt, video_dict, video_latents, text_i = Agent.get_traj_info(val_id_i, start_idx=start_idx_i, steps=int(pred_step*interact_num+8), experiment=args.dataset_names)
+        print("text_i:",text_i, "eef pose at t=0", eef_gt[0], "joint at t=0", joint_pos_gt[0])
+        # initialize all history buffer
+        video_to_save, info_to_save = [], []
+        his_cond, his_joint, his_eef = [], [], []
+        first_latent = torch.cat([v[0] for v in video_latents], dim=1).unsqueeze(0)  # (1, 4, 72, 40)
+        assert first_latent.shape == (1, 4, 72, 40), f"Expected first_latent shape (1, 4, 72, 40), got {first_latent.shape}"
+        for i in range(Agent.args.num_history*4):
+            his_cond.append(first_latent)  # (1, 4, 72, 40)
+            his_joint.append(joint_pos_gt[0:1])  # (1, 7) this dimension makes no sense with what is given in line 356
+            his_eef.append(eef_gt[0:1])  # (1, 7)
+        video_dict_pred = [v[0:1] for v in video_dict]
 
-            # start rollout
-            for i in range(interact_num):
-                # get ground truth video latents
-                # video_latent_true = [v[int(i*pred_step):int(i*pred_step+num_frames)] for v in video_latents]
-                start_id = int(i*(pred_step-1))
-                end_id = start_id + pred_step
-                video_latent_true = [v[start_id:end_id] for v in video_latents]
-                
-                print("################ policy forward ####################")
-                # prepare input for policy
-                current_joint = his_joint[-1][0] # (1, 8)
-                current_pose = his_eef[-1][0] # (1, 7) End-effector state
-                current_obs = [v[-1] for v in video_dict_pred] 
-                # forward policy
-                policy_in_out, joint_pos, cartesian_pose= Agent.forward_policy(current_obs, current_pose, current_joint, text=text_i)
-                # POlicy in out contains the predicted joint poses, the joint velocities output by the policy, and the current ee state obtained by fk of the current joint pose
-                print("cartesian space action", cartesian_pose[0]) # output xyz and gripper for debug
-                print("cartesian space action", cartesian_pose[-1]) # output xyz and gripper for debug
+        # start rollout
+        for i in range(interact_num):
+            # get ground truth video latents
+            # video_latent_true = [v[int(i*pred_step):int(i*pred_step+num_frames)] for v in video_latents]
+            start_id = int(i*(pred_step-1))
+            end_id = start_id + pred_step
+            video_latent_true = [v[start_id:end_id] for v in video_latents]
+            
+            print("################ policy forward ####################")
+            # prepare input for policy
+            current_joint = his_joint[-1][0] # (1, 8)
+            current_pose = his_eef[-1][0] # (1, 7) End-effector state
+            current_obs = [v[-1] for v in video_dict_pred] 
+            # forward policy
+            policy_in_out, joint_pos, cartesian_pose= Agent.forward_policy(current_obs, current_pose, current_joint, text=text_i)
+            # POlicy in out contains the predicted joint poses, the joint velocities output by the policy, and the current ee state obtained by fk of the current joint pose
+            print("cartesian space action", cartesian_pose[0]) # output xyz and gripper for debug
+            print("cartesian space action", cartesian_pose[-1]) # output xyz and gripper for debug
 
-                print("################ world model forward ################")
-                # prepare input for world model
-                print(f'task: {text_i}, traj_id: {val_id_i}, interact step: {i}/{interact_num}')
-                # history_idx = [0,0,-12,-9,-6,-3]
-                history_idx = args.history_idx
-                action_cond = np.concatenate([his_eef[idx] for idx in history_idx], axis=0)
-                action_cond = np.concatenate([action_cond, cartesian_pose], axis=0) # (num_history+num_frames, 7)
-                his_latent = torch.cat([his_cond[idx] for idx in history_idx], dim=0).unsqueeze(0)
-                current_latent = his_cond[-1]  # (1, 4, 72, 40)
-                # forward world model
-                videos_cat, true_videos, video_dict_pred, predict_latents = Agent.forward_wm(action_cond, video_latent_true, current_latent, his_cond=his_latent,text=text_i if Agent.args.text_cond else None)
-                
-                print("################ record information ################")
-                # push current step to history buffer
-                his_joint.append(joint_pos[pred_step-1][None,:])  # (1, 8)
-                his_eef.append(cartesian_pose[pred_step-1][None,:]) # (1, 7)
-                his_cond.append(torch.cat([v[pred_step-1] for v in predict_latents], dim=1).unsqueeze(0))  # (1, 4, 72, 40)
-                video_to_save.append(videos_cat[:pred_step-1])
-                info_to_save.append(policy_in_out)  # save policy output info
-                
+            print("################ world model forward ################")
+            # prepare input for world model
+            print(f'task: {text_i}, traj_id: {val_id_i}, interact step: {i}/{interact_num}')
+            # history_idx = [0,0,-12,-9,-6,-3]
+            history_idx = args.history_idx
+            action_cond = np.concatenate([his_eef[idx] for idx in history_idx], axis=0)
+            action_cond = np.concatenate([action_cond, cartesian_pose], axis=0) # (num_history+num_frames, 7)
+            his_latent = torch.cat([his_cond[idx] for idx in history_idx], dim=0).unsqueeze(0)
+            current_latent = his_cond[-1]  # (1, 4, 72, 40)
+            # forward world model
+            videos_cat, true_videos, video_dict_pred, predict_latents = Agent.forward_wm(action_cond, video_latent_true, current_latent, his_cond=his_latent,text=text_i if Agent.args.text_cond else None)
+            
+            print("################ record information ################")
+            # push current step to history buffer
+            his_joint.append(joint_pos[pred_step-1][None,:])  # (1, 8)
+            his_eef.append(cartesian_pose[pred_step-1][None,:]) # (1, 7)
+            his_cond.append(torch.cat([v[pred_step-1] for v in predict_latents], dim=1).unsqueeze(0))  # (1, 4, 72, 40)
+            video_to_save.append(videos_cat[:pred_step-1])
+            info_to_save.append(policy_in_out)  # save policy output info
+            
 
-            # save rollout video and info with parameters
-            print("##########################################################################")
-            video = np.concatenate(video_to_save, axis=0)
-            text_id = text_i.replace(' ', '_').replace(',', '').replace('.', '').replace('\'', '').replace('\"', '')[:40]
-            uuid = datetime.datetime.now().strftime("%Y%m%d_%H%M%S")
-            filename_video = f"{args.save_dir}/{args.task_name}/video/{args.task_type}_time_{uuid}_traj_{val_id_i}_{start_idx_i}_{args.policy_skip_step}_{text_id}.mp4"
-            os.makedirs(os.path.dirname(filename_video), exist_ok=True)
-            mediapy.write_video(filename_video, video, fps=4)
-            print(f"Saving video to {filename_video}")
-            info = {'success': 1, 'start_idx': 0, 'end_idx': video.shape[0]-1, 'instructions':text_i}
-            for key in info_to_save[0].keys():
-                info[key] = []
-                for i in range(len(info_to_save)):
-                    info[key]+=info_to_save[i][key].tolist()
-            # save to json
-            filename_info = f"{args.save_dir}/{args.task_name}/info/{args.task_type}_time_{uuid}_traj_{val_id_i}_{start_idx_i}_{pred_step}_{text_id}.json"
-            os.makedirs(os.path.dirname(filename_info), exist_ok=True)
-            with open(filename_info, 'w') as f:
-                json.dump(info, f, indent=4)
-            print(f"Saving trajectory info to {filename_info}")
-            print("##########################################################################")
+        # save rollout video and info with parameters
+        print("##########################################################################")
+        video = np.concatenate(video_to_save, axis=0)
+        text_id = text_i.replace(' ', '_').replace(',', '').replace('.', '').replace('\'', '').replace('\"', '')[:40]
+        uuid = datetime.datetime.now().strftime("%Y%m%d_%H%M%S")
+        filename_video = f"{args.save_dir}/{args.task_name}/video/{args.task_type}_time_{uuid}_traj_{val_id_i}_{start_idx_i}_{args.policy_skip_step}_{text_id}.mp4"
+        os.makedirs(os.path.dirname(filename_video), exist_ok=True)
+        mediapy.write_video(filename_video, video, fps=4)
+        print(f"Saving video to {filename_video}")
+        info = {'success': 1, 'start_idx': 0, 'end_idx': video.shape[0]-1, 'instructions':text_i}
+        for key in info_to_save[0].keys():
+            info[key] = []
+            for i in range(len(info_to_save)):
+                info[key]+=info_to_save[i][key].tolist()
+        # save to json
+        filename_info = f"{args.save_dir}/{args.task_name}/info/{args.task_type}_time_{uuid}_traj_{val_id_i}_{start_idx_i}_{pred_step}_{text_id}.json"
+        os.makedirs(os.path.dirname(filename_info), exist_ok=True)
+        with open(filename_info, 'w') as f:
+            json.dump(info, f, indent=4)
+        print(f"Saving trajectory info to {filename_info}")
+        print("##########################################################################")
 
         

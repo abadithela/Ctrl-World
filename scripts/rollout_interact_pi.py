@@ -348,7 +348,6 @@ if __name__ == "__main__":
             current_pose = his_eef[-1][0] # (1, 7)
             current_obs = [v[-1] for v in video_dict_pred] 
             # forward policy
-            breakpoint()
             policy_in_out, joint_pos, cartesian_pose= Agent.forward_policy(current_obs, current_pose, current_joint, text=text_i)
             # POlicy in out contains the predicted joint poses, the joint velocities output by the policy, and the current ee state obtained by fk of the current joint pose
             print("cartesian space action", cartesian_pose[0]) # output xyz and gripper for debug
@@ -382,6 +381,7 @@ if __name__ == "__main__":
         uuid = datetime.datetime.now().strftime("%Y%m%d_%H%M%S")
         filename_video = f"{args.save_dir}/{args.task_name}/video/{args.task_type}_time_{uuid}_traj_{val_id_i}_{start_idx_i}_{args.policy_skip_step}_{text_id}.mp4"
         os.makedirs(os.path.dirname(filename_video), exist_ok=True)
+        breakpoint()
         mediapy.write_video(filename_video, video, fps=4)
         print(f"Saving video to {filename_video}")
         info = {'success': 1, 'start_idx': 0, 'end_idx': video.shape[0]-1, 'instructions':text_i}

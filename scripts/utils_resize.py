@@ -14,12 +14,28 @@ FOLDER_RE = re.compile(r"^video_(\d{4})_(\d{2})_(\d{2})_(\d{2}):(\d{2}):(\d{2})$
 
 def parse_args():
     p = argparse.ArgumentParser(description="Reorganize Ctrl-World videos into IDed trajectories.")
-    p.add_argument("--source",
-                   default="/n/fs/irom-testing/world_models/Ctrl-World/dataset_example/pick_marker",
-                   help="Directory containing video_YYYY_MM_DD_HH:MM:SS subfolders.")
-    p.add_argument("--dest",
-                   default="/n/fs/irom-testing/world_models/Ctrl-World/dataset_example/pick_marker/videos",
-                   help="Destination base for trajectory folders.")
+    p.add_argument("--dataset", default="demos")
+    # Temporarily allow source/dest to be None
+    p.add_argument("--source", default=None)
+    p.add_argument("--dest",   default=None)
+
+    # First parse to get dataset value
+    args, remaining = p.parse_known_args()
+
+    # Now compute default paths
+    base = "/n/fs/irom-testing/world_models/Ctrl-World/dataset_example"
+    default_source = f"{base}/{args.dataset}"
+    default_dest   = f"{base}/{args.dataset}/videos"
+
+    # Set defaults dynamically
+    p.set_defaults(source=default_source, dest=default_dest)
+
+    # p.add_argument("--source",
+    #                default="/n/fs/irom-testing/world_models/Ctrl-World/dataset_example/pi0_demos",
+    #                help="Directory containing video_YYYY_MM_DD_HH:MM:SS subfolders.")
+    # p.add_argument("--dest",
+    #                default="/n/fs/irom-testing/world_models/Ctrl-World/dataset_example/pi0_demos/videos",
+    #                help="Destination base for trajectory folders.")
     p.add_argument("--pad", type=int, default=2, help="Zero-padding for trajectory IDs (e.g., 2 => 00, 01, ...).")
     p.add_argument("--start-id", type=int, default=0, help="Starting numeric ID offset.")
     p.add_argument("--copy", action="store_true", help="Copy instead of move.")
@@ -100,8 +116,8 @@ def cv_resize(video_path, out_video_path):
     cap.release()
     out.release()
 
-def main():
-    args = parse_args()
+def main(args):
+    
     source = Path(args.source).resolve()
     dest = Path(args.source).resolve() / "videos"
 
@@ -188,17 +204,17 @@ if __name__== "__main__":
     # cv_resize()
 
     ## Transfer videos
-    main()
+    args = parse_args()
+    main(args)
 
     # Manual resize
-    # dataset = "pick_marker"
-    # video_dir = f"/n/fs/irom-testing/world_models/Ctrl-World/dataset_example/{dataset}/videos"
+    video_dir = args.dest
     
-    # for folder in os.listdir(video_dir):
-    #     files = [vid_file for vid_file in os.listdir(os.path.join(video_dir, folder)) if vid_file.endswith(".mp4")]
-    #     for file in files:
-    #         video_path=f"{video_dir}/{folder}/{file}"
-    #         out_folder = f"{video_dir}/{folder}/resized_wm"
-    #         os.makedirs(f"{video_dir}/{folder}/resized_wm", exist_ok=True)
-    #         out_video_path = f"{video_dir}/{folder}/resized_wm/{file}"
-    #         cv_resize(video_path, out_video_path)
+    for folder in os.listdir(video_dir):
+        files = [vid_file for vid_file in os.listdir(os.path.join(video_dir, folder)) if vid_file.endswith(".mp4")]
+        for file in files:
+            video_path=f"{video_dir}/{folder}/{file}"
+            out_folder = f"{video_dir}/{folder}/resized_wm"
+            os.makedirs(f"{video_dir}/{folder}/resized_wm", exist_ok=True)
+            out_video_path = f"{video_dir}/{folder}/resized_wm/{file}"
+            cv_resize(video_path, out_video_path)
