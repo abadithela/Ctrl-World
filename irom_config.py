@@ -8,26 +8,27 @@ from pathlib import Path
 class wm_args:
     ########################### training args ##############################
     # model paths
-    pretrained_model_path = "/n/fs/irom-testing/world_models/Ctrl-World/stable-video-diffusion-img2vid"
-    clip_model_path ="/n/fs/irom-testing/world_models/Ctrl-World/clip-vit-base-patch32"
-    ckpt_path = '/n/fs/irom-testing/world_models/Ctrl-World/checkpoints/checkpoint-10000.pt'
-    pi_ckpt = '/n/fs/irom-testing/world_models/Ctrl-World/openpi/checkpoints/pi05_droid'
+    pretrained_model_path = "/n/fs/ug-ctrl-wrld/Ctrl-World/svd"
+    clip_model_path ="/n/fs/ug-ctrl-wrld/Ctrl-World/clip"
+    ckpt_path = '/n/fs/ug-ctrl-wrld/Ctrl-World/checkpoints/checkpoint-10000.pt'
+    pi_ckpt = '/n/fs/ug-ctrl-wrld/Ctrl-World/openpi/checkpoints/openpi-assets/checkpoints/pi05_droid'
 
     # dataset parameters
     # raw data
-    dataset_root_path = "dataset_example"
-    # dataset_names = 'droid_subset'
-    dataset_names = "pick_and_place" # Figure out why these arguments are not clear!
+    dataset_root_path = "initial_rw_data"
+    # dataset_subdir = 'droid_subset'
+    dataset_subdir = "test_subset" # Figure out why these arguments are not clear!
 
     # meta info
     dataset_meta_info_path = 'dataset_meta_info' #'/cephfs/cjyyj/code/video_evaluation/exp_cfg'#'dataset_meta_info'
-    dataset_cfgs = dataset_names
+    dataset_cfgs = dataset_subdir
     prob=[1.0]
     annotation_name='annotation' #'annotation_all_skip1'
     num_workers=4
     down_sample=3 # downsample 15hz to 5hz
     skip_step = 1
-    
+
+    save_root_path = "/n/fs/ug-ctrl-wrld/Ctrl-World/wm_outputs" 
 
     # logs parameters
     debug = False
@@ -72,10 +73,10 @@ class wm_args:
 
     ########################### rollout args ############################
     # policy
-    task_type: str = "pickplace" # choose from ['pickplace', 'towel_fold', 'wipe_table', 'tissue', 'close_laptop','tissue','drawer','stack']
+    task_type: str = "irom" # choose from ['pickplace', 'towel_fold', 'wipe_table', 'tissue', 'close_laptop','tissue','drawer','stack']
     gripper_max_dict = {'replay':1.0, 'pickplace':0.75, 'pick_and_place':0.75, 'towel_fold':0.95, 'wipe_table':0.95, 'tissue':0.97, 'close_laptop':0.95,'drawer':0.75,'stack':0.75,}
     ##############################################################################
-    policy_type = 'pi0fast' # choose from ['pi05', 'pi0', 'pi0fast']
+    policy_type = 'pi05' # choose from ['pi05', 'pi0', 'pi0fast']
     
     action_adapter = 'models/action_adapter/model2_15_9.pth' # adapat action from joint vel to cartesian pose
     pred_step = 5 # predict 5 steps (1s) action each time
@@ -87,19 +88,15 @@ class wm_args:
     val_model_path = ckpt_path
     history_idx = [0,0,-12,-9,-6,-3]
 
-    # save
-    # Number of chunks you want
-
-    # Select the appropriate chunk based on index variable
-    idx = 1 # or whatever variable you're using
-    policy = "pifast"
-    task = "drawer"
-
-    save_dir = f"{policy}_{task}_pt{idx}"
-    print("Saving to: ", save_dir)
-
     # select different traj for different tasks
     def __post_init__(self):
+        # save
+        # Number of chunks you want
+
+        # Select the appropriate chunk based on index variable
+        idx = 1 # or whatever variable you're using
+        self.save_dir = f"{self.save_root_path}/{self.policy_type}_{self.task_type}_pt{idx}"
+        print("Saving to: ", self.save_dir)
         # Per-task gripper max
         self.gripper_max = self.gripper_max_dict.get(self.task_type, 0.75)
         # Default task_name
@@ -168,9 +165,9 @@ class wm_args:
             self.instruction = ["stack the blue block on the red block"] * len(self.val_id)
         
         else:
-            self.interact_num = 25 # 25 second interactions
-            self.val_dataset_dir = f"dataset_example/{self.task_type}"
-            subfolders = subfolders = sorted([
+            self.interact_num = 25
+            self.val_dataset_dir = f"{self.dataset_root_path}/{self.dataset_subdir}"
+            subfolders = sorted([
                 name for name in os.listdir(f"{self.val_dataset_dir}/videos")
                 if os.path.isdir(os.path.join(self.val_dataset_dir, "videos", name))
             ])
@@ -179,9 +176,10 @@ class wm_args:
             # chunk_size = len(subfolders) // num_parts     # 20 // 4 = 5
             # start = (self.idx-1) * chunk_size
             # end = self.idx * chunk_size
-            
+
             start = 0
             end = len(subfolders)
+            
             self.val_id = subfolders[start:end]
             self.start_idx = [0] * len(self.val_id)
             self.instruction = [

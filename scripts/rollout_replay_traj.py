@@ -40,6 +40,7 @@ class agent():
     def __init__(self,args):
           
         # args = Args()
+        args.val_model_path = args.ckpt_path
         self.args = args
         self.accelerator = Accelerator()
         self.device = self.accelerator.device

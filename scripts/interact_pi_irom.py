@@ -32,7 +32,7 @@ from scipy.spatial.transform import Rotation as R
 import sys, os
 sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 from models.pipeline_ctrl_world import CtrlWorldDiffusionPipeline
-from models.ctrl_world import CrtlWorld
+from models.ctrl_world import CtrlWorld
 from models.utils import key_board_control, get_fk_solution
     
 
@@ -60,7 +60,7 @@ class agent():
         self.policy = policy_config.create_trained_policy(config, args.pi_ckpt)
 
         # load ctrl-world model
-        self.model = CrtlWorld(args)
+        self.model = CtrlWorld(args)
         self.model.load_state_dict(torch.load(args.val_model_path))
         self.model.to(self.accelerator.device).to(self.dtype)
         self.model.eval()
@@ -70,7 +70,7 @@ class agent():
             self.state_p01 = np.array(data_stat['state_01'])[None,:]
             self.state_p99 = np.array(data_stat['state_99'])[None,:]
         
-        # Since the official Pi-Droid model output joint velocity, and crtl-world is train on cartesian space, we need to load an light-weight adapter to transform joint velocity action into cartesian pose action. 
+        # Since the official Pi-Droid model output joint velocity, and ctrl-world is train on cartesian space, we need to load an light-weight adapter to transform joint velocity action into cartesian pose action. 
         if args.action_adapter is not None:
             from models.action_adapter.train2 import Dynamics
             self.dynamics_model = Dynamics(action_dim=7, action_num=15, hidden_size=512).to(self.device)
@@ -122,9 +122,9 @@ class agent():
         video_dict =[]
         video_latent = []
         if experiment is not None:
-            video_dir = f"/n/fs/irom-testing/world_models/Ctrl-World/dataset_example/{experiment}/videos/{id}/resized_wm"
+            video_dir = f"/n/fs/ug-ctrl-wrld/Ctrl-World/initial_rw_data/{experiment}/videos/{id}/resized_wm"
         else:
-            video_dir = f"/n/fs/irom-testing/world_models/Ctrl-World/dataset_example/irom_subset/videos/{id}/resized_cv"
+            video_dir = f"/n/fs/ug-ctrl-wrld/Ctrl-World/initial_rw_data/{task_type}/videos/{id}/resized_cv"
         
         # load videos from all views
         for file in os.listdir(video_dir):
@@ -306,12 +306,14 @@ if __name__ == "__main__":
     parser.add_argument('--ckpt_path', type=str, default="/n/fs/irom-testing/world_models/Ctrl-World/checkpoints/checkpoint-10000.pt")
     parser.add_argument('--dataset_root_path', type=str, default="dataset_example")
     parser.add_argument('--dataset_meta_info_path', type=str, default="dataset_meta_info")
-    parser.add_argument('--dataset_names', type=str, default=None)
+    parser.add_argument('--dataset_subdir', type=str, default=None)
+    parser.add_argument('--save_root_path', type=str, default=None)
     parser.add_argument('--task_type', type=str, default=None)
+    parser.add_argument('--policy_type', type=str, default=None)
     parser.add_argument('--pi_ckpt', type=str, default="/n/fs/irom-testing/world_models/Ctrl-World/openpi/checkpoints/pi05_droid")
     args_new = parser.parse_args()
 
-    # args = wm_args(task_type=args_new.task_type, dataset_names=args_new.dataset_names)
+    # args = wm_args(task_type=args_new.s, dataset_names=args_new.dataset_names)
     args = wm_args(task_type=args_new.task_type)
 
     def merge_args(cfg, cli_args):
@@ -331,10 +333,14 @@ if __name__ == "__main__":
     history_idx = args.history_idx
     # Nruns per traj: 5
     # run len(val_id) trajectory
+    print("beginning rollouts...")
+    # print(args.val_id)
+    # print(args.start_idx)
     for val_id_i, start_idx_i in zip(args.val_id, args.start_idx):
+        print("entered rollout loop...")
         # get initial state and groud truth
         id = val_id_i
-        eef_gt, joint_pos_gt, video_dict, video_latents, text_i = Agent.get_traj_info(val_id_i, start_idx=start_idx_i, steps=int(pred_step*interact_num+8), experiment=args.dataset_names)
+        eef_gt, joint_pos_gt, video_dict, video_latents, text_i = Agent.get_traj_info(val_id_i, start_idx=start_idx_i, steps=int(pred_step*interact_num+8), experiment=args.dataset_subdir)
         print("text_i:",text_i, "eef pose at t=0", eef_gt[0], "joint at t=0", joint_pos_gt[0])
         # initialize all history buffer
         video_to_save, info_to_save = [], []
@@ -392,7 +398,7 @@ if __name__ == "__main__":
         video = np.concatenate(video_to_save, axis=0)
         text_id = text_i.replace(' ', '_').replace(',', '').replace('.', '').replace('\'', '').replace('\"', '')[:40]
         uuid = datetime.datetime.now().strftime("%Y%m%d_%H%M%S")
-        filename_video = f"{args.save_dir}/{args.task_name}/video/{args.task_type}_time_{uuid}_traj_{val_id_i}_{start_idx_i}_{args.policy_skip_step}_{text_id}.mp4"
+        filename_video = f"{args.save_dir}/{args.task_name}/video/time_{uuid}_traj_{val_id_i}_{start_idx_i}_{args.policy_skip_step}_{text_id}.mp4"
         os.makedirs(os.path.dirname(filename_video), exist_ok=True)
         mediapy.write_video(filename_video, video, fps=4)
         print(f"Saving video to {filename_video}")
@@ -402,11 +408,9 @@ if __name__ == "__main__":
             for i in range(len(info_to_save)):
                 info[key]+=info_to_save[i][key].tolist()
         # save to json
-        filename_info = f"{args.save_dir}/{args.task_name}/info/{args.task_type}_time_{uuid}_traj_{val_id_i}_{start_idx_i}_{pred_step}_{text_id}.json"
+        filename_info = f"{args.save_dir}/{args.task_name}/info/time_{uuid}_traj_{val_id_i}_{start_idx_i}_{pred_step}_{text_id}.json"
         os.makedirs(os.path.dirname(filename_info), exist_ok=True)
         with open(filename_info, 'w') as f:
             json.dump(info, f, indent=4)
         print(f"Saving trajectory info to {filename_info}")
         print("##########################################################################")
-
-        
