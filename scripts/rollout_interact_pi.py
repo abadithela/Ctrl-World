@@ -2,10 +2,9 @@
 from openpi.training import config as config_pi
 from openpi.policies import policy_config
 from openpi_client import image_tools
-# from openpi.shared import download
 
 import numpy as np
-
+import time
 
 from accelerate import Accelerator
 import torch
@@ -61,7 +60,6 @@ class agent():
         self.policy = policy_config.create_trained_policy(config, args.pi_ckpt)
 
         # load ctrl-world model
-
         self.model = CrtlWorld(args)
         self.model.load_state_dict(torch.load(args.val_model_path))
         self.model.to(self.accelerator.device).to(self.dtype)
@@ -105,20 +103,20 @@ class agent():
         max_ids = np.ones_like(frames_ids) * (length - 1)
         frames_ids = np.min([frames_ids, max_ids], axis=0).astype(int)
         print("Ground truth frames ids", frames_ids)
-
+        
         # get action and joint pos
         instruction = anno['texts'][0]
         car_action = np.array(anno['states'])
         car_action = car_action[frames_ids]
         joint_pos = np.array(anno['joints'])
         joint_pos = joint_pos[frames_ids]
-
         # get videos
         video_dict =[]
         video_latent = []
         for id in range(len(anno['videos'])):
             video_path = anno['videos'][id]['video_path']
             video_path = f"{val_dataset_dir}/{video_path}"
+            breakpoint()
             # load videos from all views
             vr = VideoReader(video_path, ctx=cpu(0), num_threads=2)
             try:
@@ -141,10 +139,7 @@ class agent():
                     latent = vae.encode(batch).latent_dist.sample().mul_(vae.config.scaling_factor)
                     latents.append(latent)
                 x = torch.cat(latents, dim=0)
-    
             video_latent.append(x)
-
-        
         return car_action, joint_pos, video_dict, video_latent, instruction
 
     def forward_wm(self, action_cond, video_latent_true, video_latent_cond, his_cond=None, text=None):
@@ -158,7 +153,6 @@ class agent():
         assert image_cond.shape[1:] == (4, 72, 40)
         assert action_cond.shape[1:] == (args.num_frames+args.num_history, args.action_dim)
 
-
         # predict future frames
         with torch.no_grad():
             bsz = action_cond.shape[0]
@@ -168,6 +162,7 @@ class agent():
                 text_token = self.model.action_encoder(action_cond)           
             pipeline = self.model.pipeline
             
+            st = time.time()
             _, latents = CtrlWorldDiffusionPipeline.__call__(
                 pipeline,
                 image=image_cond,
@@ -186,6 +181,8 @@ class agent():
                 return_dict=False,
                 frame_level_cond=True,
             )
+        et= time.time()
+        print("Time: ", et-st)
         latents = einops.rearrange(latents, 'b f c (m h) (n w) -> (b m n) f c h w', m=3,n=1) # (B, 8, 4, 32,32)
 
 
@@ -221,7 +218,6 @@ class agent():
         # concatenate true videos and video
         videos_cat = np.concatenate([true_video,videos],axis=-3) # (3, 8, 256, 256, 3)
         videos_cat = np.concatenate([video for video in videos_cat],axis=-2).astype(np.uint8) 
-
         return videos_cat, true_video, videos, latents  # np.uint8:(3, 8, 128, 256, 3) or (3, 8, 192, 320, 3)
 
     def forward_policy(self, videos, state, joints, text, time_step=1):
@@ -244,7 +240,6 @@ class agent():
             "prompt": text,
         }
         action_chunk = self.policy.infer(example)["actions"] #(10,8) velocity
-
         # action adapater
         current_joint = joints[None,:][:,:7]
         current_gripper = joints[None,:][:,7:]
@@ -261,7 +256,7 @@ class agent():
         gripper_pos = np.clip(gripper_pos, 0, gripper_max)
         # calculate future joint positions
         joint_pos = self.dynamics_model(current_joint, joint_vel,None, training=False)
-        # fk
+        
         state_fk = []
         joint_pos = np.concatenate([current_joint, joint_pos], axis=0)[:15]  # (15, 7)
         gripper_pos = np.concatenate([current_gripper, gripper_pos], axis=0)[:15]  # (15, 1)
@@ -286,7 +281,6 @@ class agent():
         state_fk_skip = state_fk[::skip][:self.args.pred_step]  # (5, 7)
         joint_pos_skip = joint_pos[::skip][:self.args.pred_step]  # (5, 7)
         joint_pos_skip = np.concatenate([joint_pos_skip, state_fk_skip[:,-1:]], axis=-1) # (5, 8) add gripper pos
-
         return policy_in_out, joint_pos_skip, state_fk_skip
 
     
@@ -341,7 +335,6 @@ if __name__ == "__main__":
             his_eef.append(eef_gt[0:1])  # (1, 7)
         video_dict_pred = [v[0:1] for v in video_dict]
 
-
         # start rollout
         for i in range(interact_num):
             # get ground truth video latents
@@ -353,10 +346,12 @@ if __name__ == "__main__":
             print("################ policy forward ####################")
             # prepare input for policy
             current_joint = his_joint[-1][0] # (1, 8)
-            current_pose = his_eef[-1][0] # (1, 8)
+            current_pose = his_eef[-1][0] # (1, 7)
             current_obs = [v[-1] for v in video_dict_pred] 
             # forward policy
+            breakpoint()
             policy_in_out, joint_pos, cartesian_pose= Agent.forward_policy(current_obs, current_pose, current_joint, text=text_i)
+            # POlicy in out contains the predicted joint poses, the joint velocities output by the policy, and the current ee state obtained by fk of the current joint pose
             print("cartesian space action", cartesian_pose[0]) # output xyz and gripper for debug
             print("cartesian space action", cartesian_pose[-1]) # output xyz and gripper for debug
 
@@ -403,7 +398,4 @@ if __name__ == "__main__":
         print(f"Saving trajectory info to {filename_info}")
         print("##########################################################################")
 
-
-# CUDA_VISIBLE_DEVICES=0 XLA_PYTHON_CLIENT_MEM_FRACTION=0.4 python rollout_interact_pi.py --task_type pickplace
-        
         

@@ -2,16 +2,16 @@ import torch
 import os
 import json
 from dataclasses import dataclass
-
+from pathlib import Path
 
 @dataclass
 class wm_args:
     ########################### training args ##############################
     # model paths
-    svd_model_path = "/cephfs/shared/llm/stable-video-diffusion-img2vid"
-    clip_model_path = "/cephfs/shared/llm/clip-vit-base-patch32"
-    ckpt_path = '/cephfs/cjyyj/code/video_evaluation/output2/exp33_210_s11/checkpoint-10000.pt'
-    pi_ckpt = '/cephfs/shared/llm/openpi/openpi-assets-preview/checkpoints/pi05_droid'
+    pretrained_model_path = "/n/fs/irom-testing/world_models/Ctrl-World/stable-video-diffusion-img2vid"
+    clip_model_path ="/n/fs/irom-testing/world_models/Ctrl-World/clip-vit-base-patch32"
+    ckpt_path = '/n/fs/irom-testing/world_models/Ctrl-World/checkpoints/checkpoint-10000.pt'
+    pi_ckpt = '/n/fs/irom-testing/world_models/Ctrl-World/openpi/checkpoints/pi05_droid'
 
     # dataset parameters
     # raw data
@@ -29,7 +29,7 @@ class wm_args:
 
     # logs parameters
     debug = False
-    tag = 'doird_subset'
+    tag = 'droid_subset'
     output_dir = f"model_ckpt/{tag}"
     wandb_run_name = tag
     wandb_project_name = "droid_example"
@@ -127,9 +127,9 @@ class wm_args:
             self.val_id = ['0001','0002','0003']
             self.start_idx = [0] * len(self.val_id)
             self.instruction = [
-                "pick up the green block and place in plate",
-                "pick up the green block and place in plate",
-                "pick up the blue block and place in plate",]
+                "pick up the blue block and place in plate",
+                "pick up the blue block and place in plate",
+                "pick up the green block and place in plate",]
 
         elif self.task_type == "towel_fold":
             self.interact_num = 15
