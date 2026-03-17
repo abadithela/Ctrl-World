@@ -8,16 +8,17 @@ from pathlib import Path
 class wm_args:
     ########################### training args ##############################
     # model paths
-    pretrained_model_path = "/n/fs/ug-ctrl-wrld/Ctrl-World/svd"
-    clip_model_path ="/n/fs/ug-ctrl-wrld/Ctrl-World/clip"
-    ckpt_path = '/n/fs/ug-ctrl-wrld/Ctrl-World/checkpoints/checkpoint-10000.pt'
-    pi_ckpt = '/n/fs/ug-ctrl-wrld/Ctrl-World/openpi/checkpoints/openpi-assets/checkpoints/pi05_droid'
+    PROJECT_ROOT = Path(__file__).resolve().parent
+    pretrained_model_path = f"{PROJECT_ROOT}/svd"
+    clip_model_path = f"{PROJECT_ROOT}/clip"
+    ckpt_path = f"{PROJECT_ROOT}/checkpoints/checkpoint-10000.pt"
+    pi_ckpt = f"{PROJECT_ROOT}/openpi/checkpoints/openpi-assets/checkpoints/pi05_droid"
 
     # dataset parameters
     # raw data
-    dataset_root_path = "initial_rw_data"
+    dataset_root_path = f"{PROJECT_ROOT}/dataset_example"
     # dataset_subdir = 'droid_subset'
-    dataset_subdir = "test_subset" # Figure out why these arguments are not clear!
+    dataset_subdir = "pi05_demos" # Figure out why these arguments are not clear!
 
     # meta info
     dataset_meta_info_path = 'dataset_meta_info' #'/cephfs/cjyyj/code/video_evaluation/exp_cfg'#'dataset_meta_info'
@@ -28,7 +29,7 @@ class wm_args:
     down_sample=3 # downsample 15hz to 5hz
     skip_step = 1
 
-    save_root_path = "/n/fs/ug-ctrl-wrld/Ctrl-World/wm_outputs" 
+    save_root_path = f"{PROJECT_ROOT}/wm_outputs"
 
     # logs parameters
     debug = False

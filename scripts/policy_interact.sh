@@ -20,7 +20,7 @@ conda activate ctrl-world
 svd_folder="/n/fs/irom-testing/world_models/Ctrl-World/stable-video-diffusion-img2vid"
 clip_folder="/n/fs/irom-testing/world_models/Ctrl-World/clip-vit-base-patch32"
 ckpt_path="/n/fs/irom-testing/world_models/Ctrl-World/checkpoints/checkpoint-10000.pt"
-policy_path="/n/fs/irom-testing/world_models/Ctrl-World/openpi/checkpoints/pi0_fast_droid"
+policy_path="/n/fs/irom-testing/world_models/Ctrl-World/openpi/checkpoints/pi05"
 
 dataset_names="pi05_test"
 

@@ -1,24 +1,18 @@
-### Interact with policy from IROM Lab demos
 from openpi.training import config as config_pi
 from openpi.policies import policy_config
 from openpi_client import image_tools
-from pathlib import Path
 import numpy as np
 import time
 import h5py
-
 from accelerate import Accelerator
 import torch
 from diffusers import StableVideoDiffusionPipeline
-import numpy as np
-# import cv2
 import torch
 import torch.nn.functional as F
 import torch.nn as nn
 import einops
 from accelerate import Accelerator
 import datetime
-import os
 from accelerate.logging import get_logger
 from tqdm.auto import tqdm
 import wandb
@@ -26,15 +20,27 @@ import json
 from decord import VideoReader, cpu
 import swanlab
 import mediapy
-import sys
 from scipy.spatial.transform import Rotation as R
-
 import sys, os
 sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 from models.pipeline_ctrl_world import CtrlWorldDiffusionPipeline
 from models.ctrl_world import CtrlWorld
 from models.utils import key_board_control, get_fk_solution
-    
+from img_config import wm_args
+from argparse import ArgumentParser
+from pathlib import Path
+from torchvision.io import read_image
+import cv2
+from utils.define_task import generate_robot_instruction
+
+def cv_resize_image(image_path, out_image_path):
+    # 1. Load the image
+    img = cv2.imread(image_path)
+    # 2. Resize it to (width, height)
+    # Note: OpenCV uses (width, height) for size
+    resized = cv2.resize(img, (320, 192), interpolation=cv2.INTER_AREA)
+    # 3. Save the result
+    cv2.imwrite(out_image_path, resized)
 
 class agent():
     def __init__(self,args):
@@ -44,6 +50,7 @@ class agent():
         self.accelerator = Accelerator()
         self.device = self.accelerator.device
         self.dtype = args.dtype
+        self.PROJECT_ROOT = Path(__file__).resolve().parent.parent
 
         # load pi policy
         if 'pi05' in args.policy_type:
@@ -91,26 +98,28 @@ class agent():
     def get_traj_info(self, id, start_idx=0, steps=8,skip=1, experiment=None):
         val_dataset_dir = self.args.val_dataset_dir
         num_frames = steps
-        annotation_path = f"{val_dataset_dir}/annotation/{id}/{id}.h5"
+        annotation_path = f"{val_dataset_dir}/annotation.h5"
+        meta_file = f"{val_dataset_dir}/{id}/env_setup.txt"
+        instruction = generate_robot_instruction(meta_file)
+        if not os.path.exists(annotation_path):
+            annotation_path = f"{self.PROJECT_ROOT}/dataset_example/pi05_demos/annotation/00/00.h5"
+            print("Annotation path not saved; using default at: ", annotation_path)
+            
         data = {}
         with h5py.File(annotation_path, 'r') as f:
             # List all groups (top-level keys)
             print("Keys:", list(f.keys()))
+
             # Access a specific group or dataset
             data["cartesian_pose"] = f['cartesian_position'][()]   # replace with actual key name
             data["gripper_pose"] = f["gripper_position"][()]
             data["joint_position"] = f["joint_position"][()]
-            instruction = f["instruction"][()].decode("utf-8").strip('"')
-
-        length = len(data["cartesian_pose"])
-        frames_ids = np.arange(start_idx, start_idx + num_frames * skip, skip)
-        length = min(len(frames_ids), length)
-        max_ids = np.ones_like(frames_ids) * (length - 1)
-        frames_ids = np.min([frames_ids, max_ids], axis=0).astype(int)
+            # instruction = f["instruction"][()].decode("utf-8").strip('"')
+        
+        frames_ids = [0] # Just the initial frame
         print("Ground truth frames ids", frames_ids)
         
         # get action and joint pos
-        # instruction = anno['texts'][0]
         car_action = np.array(data['cartesian_pose'])
         car_action = car_action[frames_ids]
         joint_pos = np.array(data['joint_position'])
@@ -118,28 +127,27 @@ class agent():
         gripper_pose = np.array(data["gripper_pose"])[frames_ids]
         car_action = np.concatenate((car_action,gripper_pose),axis=1)
         joint_pos = np.concatenate((joint_pos, gripper_pose), axis=1)
+
         # get videos
         video_dict =[]
         video_latent = []
-        if experiment is not None:
-            video_dir = f"/n/fs/ug-ctrl-wrld/Ctrl-World/initial_rw_data/{experiment}/videos/{id}/resized_wm"
-        else:
-            video_dir = f"/n/fs/ug-ctrl-wrld/Ctrl-World/initial_rw_data/{task_type}/videos/{id}/resized_cv"
-        
+        img_dir = f"{self.args.dataset_root_path}/{experiment}/{id}"
+        img_files = [f"initial_frame_{view}.png" for view in ["left", "right", "wrist"]]
         # load videos from all views
-        for file in os.listdir(video_dir):
-            video_path = os.path.join(video_dir, file)
-            vr = VideoReader(video_path, ctx=cpu(0), num_threads=2)
-            try:
-                true_video = vr.get_batch(range(length)).asnumpy()
-            except:
-                true_video = vr.get_batch(range(length)).numpy()
-            true_video = true_video[frames_ids]
-            video_dict.append(true_video)
-            # encode video
+        for file in img_files:
+            img_path = os.path.join(img_dir, file)
+            true_image_orig = read_image(img_path)
+            true_image_np = true_image_orig.permute(1, 2, 0).cpu().numpy()
+            true_image = cv2.resize(true_image_np, (320, 192), interpolation=cv2.INTER_AREA) # resized
+            # Add the dimension here
+            true_image_with_batch = true_image[None, ...]   
+            video_dict.append(true_image_with_batch)
             device = self.device
-            true_video = torch.from_numpy(true_video).to(self.dtype).to(device)
-            x = true_video.permute(0,3,1,2).to(device) / 255.0*2-1
+
+            if not isinstance(true_image, torch.Tensor):
+                true_image = torch.from_numpy(true_image).permute(2, 0, 1) # back to chw
+            true_image = true_image.to(self.dtype).to(device)
+            x = true_image.unsqueeze(0).to(device) / 255.0 * 2 - 1
             vae = self.model.pipeline.vae
             with torch.no_grad():
                 batch_size = 32
@@ -195,21 +203,6 @@ class agent():
         print("Time: ", et-st)
         latents = einops.rearrange(latents, 'b f c (m h) (n w) -> (b m n) f c h w', m=3,n=1) # (B, 8, 4, 32,32)
 
-        # decode ground truth video
-        true_video = torch.stack(video_latent_true, dim=0) # (bsz, 8,32,32)
-        decoded_video = []
-        bsz,frame_num = true_video.shape[:2]
-        true_video = true_video.flatten(0,1)
-        decode_kwargs = {}
-        for i in range(0,true_video.shape[0],args.decode_chunk_size):
-            chunk = true_video[i:i+args.decode_chunk_size]/pipeline.vae.config.scaling_factor
-            decode_kwargs["num_frames"] = chunk.shape[0]
-            decoded_video.append(pipeline.vae.decode(chunk, **decode_kwargs).sample)
-        true_video = torch.cat(decoded_video,dim=0)
-        true_video = true_video.reshape(bsz,frame_num,*true_video.shape[1:])
-        true_video = ((true_video / 2.0 + 0.5).clamp(0, 1)*255)
-        true_video = true_video.detach().to(torch.float32).cpu().numpy().transpose(0,1,3,4,2).astype(np.uint8) #(2,16,256,256,3)
-
         # decode predicted video
         decoded_video = []
         bsz,frame_num = latents.shape[:2]
@@ -223,11 +216,10 @@ class agent():
         videos = videos.reshape(bsz,frame_num,*videos.shape[1:])
         videos = ((videos / 2.0 + 0.5).clamp(0, 1)*255)
         videos = videos.detach().to(torch.float32).cpu().numpy().transpose(0,1,3,4,2).astype(np.uint8)
-
-        # concatenate true videos and video
-        videos_cat = np.concatenate([true_video,videos],axis=-3) # (3, 8, 256, 256, 3)
-        videos_cat = np.concatenate([video for video in videos_cat],axis=-2).astype(np.uint8) 
-        return videos_cat, true_video, videos, latents  # np.uint8:(3, 8, 128, 256, 3) or (3, 8, 192, 320, 3)
+        
+        # Concatenate into one sheet:
+        videos_cat = np.concatenate([video for video in videos], axis=-2).astype(np.uint8)
+        return videos_cat, videos, latents  # np.uint8:(3, 8, 128, 256, 3) or (3, 8, 192, 320, 3)
 
     def forward_policy(self, videos, state, joints, text, time_step=1):
         """
@@ -296,27 +288,25 @@ class agent():
         joint_pos_skip = np.concatenate([joint_pos_skip, state_fk_skip[:,-1:]], axis=-1) # (5, 8) add gripper pos
         return policy_in_out, joint_pos_skip, state_fk_skip
 
-    
-if __name__ == "__main__":
-    from irom_config import wm_args
-    from argparse import ArgumentParser
+def get_args():
     parser = ArgumentParser()
     PROJECT_ROOT = Path(__file__).resolve().parent.parent
     parser.add_argument('--pretrained_model_path', type=str, default=None)
-    parser.add_argument('--clip_model_path', type=str, default="/n/fs/irom-testing/world_models/Ctrl-World/clip-vit-base-patch32")
-    parser.add_argument('--ckpt_path', type=str, default="/n/fs/irom-testing/world_models/Ctrl-World/checkpoints/checkpoint-10000.pt")
-    parser.add_argument('--dataset_root_path', type=str, default="dataset_example")
+    parser.add_argument('--clip_model_path', type=str, default=f"{PROJECT_ROOT}/clip-vit-base-patch32")
+    parser.add_argument('--ckpt_path', type=str, default=f"{PROJECT_ROOT}/checkpoints/checkpoint-10000.pt")
+    parser.add_argument('--dataset_root_path', type=str, default=f"{PROJECT_ROOT}/init_conditions")
     parser.add_argument('--svd_model_path', type=str, default=f"{PROJECT_ROOT}/stable-video-diffusion-img2vid")
-    parser.add_argument('--dataset_meta_info_path', type=str, default="dataset_meta_info")
+    parser.add_argument('--dataset_meta_info_path', type=str, default=f"{PROJECT_ROOT}/dataset_meta_info")
+    parser.add_argument('--start', type=int, default=0)
+    parser.add_argument("--end", type=int, default=10)
     parser.add_argument('--dataset_subdir', type=str, default=None)
     parser.add_argument('--save_root_path', type=str, default=None)
     parser.add_argument('--task_type', type=str, default=None)
     parser.add_argument('--policy_type', type=str, default=None)
-    parser.add_argument('--pi_ckpt', type=str, default="/n/fs/irom-testing/world_models/Ctrl-World/openpi/checkpoints/pi05_droid")
+    parser.add_argument('--pi_ckpt', type=str, default=f"{PROJECT_ROOT}/openpi/checkpoints/pi05_droid")
     args_new = parser.parse_args()
 
-    # args = wm_args(task_type=args_new.s, dataset_names=args_new.dataset_names)
-    args = wm_args(task_type=args_new.task_type)
+    args = wm_args()
 
     def merge_args(cfg, cli_args):
         for k, v in vars(cli_args).items():
@@ -325,8 +315,10 @@ if __name__ == "__main__":
         return cfg
 
     args = merge_args(args, args_new)
+    args.setup_paths()
+    return args
 
-    # create agent
+def run_rollouts(args):
     Agent = agent(args)
     interact_num = args.interact_num
     pred_step = args.pred_step
@@ -336,12 +328,24 @@ if __name__ == "__main__":
     # Nruns per traj: 5
     # run len(val_id) trajectory
     print("beginning rollouts...")
-    # print(args.val_id)
-    # print(args.start_idx)
+
+    runtimes = []
     for val_id_i, start_idx_i in zip(args.val_id, args.start_idx):
+        # Check if .mp4 file video already exists
+        folder = f"{args.save_dir}/{args.task_name}/video/traj_{val_id_i}"
+        if os.path.exists(folder) and len(os.listdir(folder)) > 0:
+            files = os.listdir(folder)
+            mp4_files = [f for f in files if f.endswith('.mp4')]
+            if mp4_files:
+                print(f"Video for traj_id {val_id_i} already exists, next...")
+                continue
+
+        trial_times = []
+        start_time = time.time()
         print("entered rollout loop...")
         # get initial state and groud truth
         id = val_id_i
+        
         eef_gt, joint_pos_gt, video_dict, video_latents, text_i = Agent.get_traj_info(val_id_i, start_idx=start_idx_i, steps=int(pred_step*interact_num+8), experiment=args.dataset_subdir)
         print("text_i:",text_i, "eef pose at t=0", eef_gt[0], "joint at t=0", joint_pos_gt[0])
         # initialize all history buffer
@@ -353,8 +357,7 @@ if __name__ == "__main__":
             his_cond.append(first_latent)  # (1, 4, 72, 40)
             his_joint.append(joint_pos_gt[0:1])  # (1, 7) this dimension makes no sense with what is given in line 356
             his_eef.append(eef_gt[0:1])  # (1, 7)
-        video_dict_pred = [v[0:1] for v in video_dict]
-        
+        video_dict_pred = [v for v in video_dict]
         # start rollout
         for i in range(interact_num):
             # get ground truth video latents
@@ -384,7 +387,7 @@ if __name__ == "__main__":
             his_latent = torch.cat([his_cond[idx] for idx in history_idx], dim=0).unsqueeze(0)
             current_latent = his_cond[-1]  # (1, 4, 72, 40)
             # forward world model
-            videos_cat, true_videos, video_dict_pred, predict_latents = Agent.forward_wm(action_cond, video_latent_true, current_latent, his_cond=his_latent,text=text_i if Agent.args.text_cond else None)
+            videos_cat, video_dict_pred, predict_latents = Agent.forward_wm(action_cond, video_latent_true, current_latent, his_cond=his_latent,text=text_i if Agent.args.text_cond else None)
             
             print("################ record information ################")
             # push current step to history buffer
@@ -399,7 +402,7 @@ if __name__ == "__main__":
         video = np.concatenate(video_to_save, axis=0)
         text_id = text_i.replace(' ', '_').replace(',', '').replace('.', '').replace('\'', '').replace('\"', '')[:40]
         uuid = datetime.datetime.now().strftime("%Y%m%d_%H%M%S")
-        filename_video = f"{args.save_dir}/{args.task_name}/video/time_{uuid}_traj_{val_id_i}_{start_idx_i}_{args.policy_skip_step}_{text_id}.mp4"
+        filename_video = f"{args.save_dir}/{args.task_name}/video/traj_{val_id_i}/time_{uuid}_{args.policy_skip_step}_{text_id}.mp4"
         os.makedirs(os.path.dirname(filename_video), exist_ok=True)
         mediapy.write_video(filename_video, video, fps=4)
         print(f"Saving video to {filename_video}")
@@ -415,3 +418,11 @@ if __name__ == "__main__":
             json.dump(info, f, indent=4)
         print(f"Saving trajectory info to {filename_info}")
         print("##########################################################################")
+        trial_times.append(time.time() - start_time)
+        runtimes.append(trial_times)
+        print(trial_times)
+    print(runtimes)
+
+if __name__ == "__main__":
+    args = get_args()
+    run_rollouts(args)

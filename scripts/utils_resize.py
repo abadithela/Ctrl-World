@@ -23,7 +23,7 @@ def parse_args():
     args, remaining = p.parse_known_args()
 
     # Now compute default paths
-    base = "/n/fs/irom-testing/world_models/Ctrl-World/dataset_example"
+    base = "/n/fs/irom-testing/world_models/Ctrl-World/init_conditions"
     default_source = f"{base}/{args.dataset}"
     default_dest   = f"{base}/{args.dataset}/videos"
 
@@ -40,7 +40,7 @@ def parse_args():
     p.add_argument("--start-id", type=int, default=0, help="Starting numeric ID offset.")
     p.add_argument("--copy", action="store_true", help="Copy instead of move.")
     p.add_argument("--skip-resized", action="store_true", help="Do not collect resized_* videos.")
-    p.add_argument("--move-poses", action="store_true", help="Move robot_pose_*.h5 into <dest>/annotation/<ID>.h5")
+    p.add_argument("--move-poses", action="store_true", default=True, help="Move robot_pose_*.h5 into <dest>/annotation/<ID>.h5")
     p.add_argument("--dry-run", action="store_true", default=False, help="Show planned operations without changing files.")
     return p.parse_args()
 
@@ -120,14 +120,16 @@ def main(args):
     
     source = Path(args.source).resolve()
     dest = Path(args.source).resolve() / "videos"
+    os.makedirs(dest, exist_ok=True)
 
     print(f"Source: {source}")
     print(f"Dest:   {dest}")
     print(f"Mode:   {'COPY' if args.copy else 'MOVE'}; Resized={'SKIP' if args.skip_resized else 'COLLECT'}; Dry-run={args.dry_run}")
+    
     timestamped = find_timestamped_dirs(source)
     if not timestamped:
-        print("No timestamped subfolders found. Exiting.")
-        return
+        print("No timestamped subfolders found. Listing all subfolders.")
+        timestamped = [(None, d) for d in source.iterdir() if d.is_dir()]
 
     # Optional poses destination
     poses_dest = dest.parent / "annotation"
@@ -173,6 +175,9 @@ def main(args):
                     pose_dst = poses_dest / f"{traj_id}"/f"{traj_id}.h5"
                     pose_moved = do_transfer(item, pose_dst, args.copy, args.dry_run)
                     break
+
+            do_transfer(folder / "instruction.txt", traj_dir / "instruction.txt", args.copy, args.dry_run)
+            do_transfer(folder / "success.txt",     traj_dir / "success.txt",     args.copy, args.dry_run)
 
         plan_summary.append({
             "id": traj_id,
