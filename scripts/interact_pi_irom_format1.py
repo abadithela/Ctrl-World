@@ -123,9 +123,9 @@ class agent():
         video_latent = []
         if experiment is not None:
             # 'experiment' is same as dataset_subdir
-            video_dir = f"{dataset_root_path}/{experiment}/videos/{id}/resized_wm"
+            video_dir = f"{args.dataset_root_path}/{experiment}/videos/{id}/resized_wm"
         else:
-            video_dir = f"{dataset_root_path}/{task_type}/videos/{id}/resized_cv"
+            video_dir = f"{args.dataset_root_path}/{task_type}/videos/{id}/resized_cv"
         
         # load videos from all views
         for file in os.listdir(video_dir):
@@ -299,7 +299,7 @@ class agent():
 
     
 if __name__ == "__main__":
-    from irom_config import wm_args
+    from irom_config_format1 import wm_args
     from argparse import ArgumentParser
     parser = ArgumentParser()
     parser.add_argument('--pretrained_model_path', type=str, default=None)
