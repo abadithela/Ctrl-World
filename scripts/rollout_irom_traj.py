@@ -13,7 +13,7 @@ import sys, os
 sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 from models.pipeline_stable_video_diffusion import StableVideoDiffusionPipeline
 from models.pipeline_ctrl_world import CtrlWorldDiffusionPipeline
-from models.ctrl_world import CrtlWorld
+from models.ctrl_world import CtrlWorld
 from models.utils import key_board_control, get_fk_solution
 
 import numpy as np
@@ -60,7 +60,7 @@ class agent():
         #     raise ValueError(f"Unknown policy type: {args.policy_type}")
         # self.policy = policy_config.create_trained_policy(config, checkpoint_dir)
         # load ctrl-world model        
-        self.model = CrtlWorld(args)
+        self.model = CtrlWorld(args)
         
         # # Resolve the checkpoint path robustly
         # REPO_ROOT = Path(__file__).resolve().parent.parent   # -> /n/fs/irom-testing/world_models/Ctrl-World/
@@ -124,9 +124,9 @@ class agent():
         video_dict =[]
         video_latent = []
         if experiment is not None:
-            video_dir = f"/n/fs/irom-testing/world_models/Ctrl-World/dataset_example/{experiment}/videos/{id}/resized_wm"
+            video_dir = f"{args.dataset_root_path}/{experiment}/videos/{id}/resized_wm"
         else:
-            video_dir = f"/n/fs/irom-testing/world_models/Ctrl-World/dataset_example/irom_subset/videos/{id}/resized_cv"
+            video_dir = f"{args.dataset_root_path}/{experiment}/videos/{id}/resized_cv"
         
         # load videos from all views
         for file in os.listdir(video_dir):
@@ -231,17 +231,19 @@ class agent():
 
         
 if __name__ == "__main__":
-    from irom_config import wm_args
+    from irom_config_format1 import wm_args
     from argparse import ArgumentParser
     parser = ArgumentParser()
-    parser.add_argument('--svd_model_path', type=str, default="/n/fs/irom-testing/world_models/Ctrl-World/stable-video-diffusion-img2vid")
+    parser.add_argument('--pretrained_model_path', type=str, default=None)
     parser.add_argument('--clip_model_path', type=str, default="/n/fs/irom-testing/world_models/Ctrl-World/clip-vit-base-patch32")
     parser.add_argument('--ckpt_path', type=str, default="/n/fs/irom-testing/world_models/Ctrl-World/checkpoints/checkpoint-10000.pt")
     parser.add_argument('--dataset_root_path', type=str, default="dataset_example")
     parser.add_argument('--dataset_meta_info_path', type=str, default="dataset_meta_info")
-    parser.add_argument('--dataset_names', type=str, default=None)
-    parser.add_argument('--task_type', type=str, default='irom_replay')
-    parser.add_argument('--task_name', type=str, default='action_replay')
+    parser.add_argument('--dataset_subdir', type=str, default=None)
+    parser.add_argument('--save_root_path', type=str, default=None)
+    parser.add_argument('--task_type', type=str, default=None)
+    parser.add_argument('--policy_type', type=str, default=None)
+    parser.add_argument('--pi_ckpt', type=str, default="/n/fs/irom-testing/world_models/Ctrl-World/openpi/checkpoints/pi05_droid")
     args_new = parser.parse_args()
 
     args = wm_args(task_type=args_new.task_type)
@@ -265,7 +267,7 @@ if __name__ == "__main__":
     
     for val_id_i, start_idx_i in zip(args.val_id, args.start_idx):
         # read ground truth trajectory informations
-        eef_gt, joint_pos_gt, video_dict, video_latents, instruction = Agent.get_traj_info(val_id_i, start_idx=start_idx_i, steps=int(pred_step*interact_num+8), experiment=args.dataset_names)
+        eef_gt, joint_pos_gt, video_dict, video_latents, instruction = Agent.get_traj_info(val_id_i, start_idx=start_idx_i, steps=int(pred_step*interact_num+8), experiment=args.dataset_subdir)
         text_i = instruction
         print("text_i:",instruction, "eef pose at t=0", eef_gt[0], "joint at t=0", joint_pos_gt[0])
 
