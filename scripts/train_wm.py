@@ -293,10 +293,6 @@ if __name__ == "__main__":
     #     optimizer.zero_grad()
     #     print(loss.item())
 
-
-
-
-
     # device = 'cuda'
     # video_encoder = VideoEncoder(hidden_size=1024).to(device)
     # # count the parameters of the model
