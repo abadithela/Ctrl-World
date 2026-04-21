@@ -182,7 +182,9 @@ class wm_args:
             start = 0
             end = len(subfolders)
             
-            self.val_id = subfolders[start:end]
+            # which videos to get
+            self.val_id = subfolders[65:75]
+            # which frame to start from
             self.start_idx = [0] * len(self.val_id)
             self.instruction = [
                 "pick and place",]
